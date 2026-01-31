@@ -1,7 +1,9 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+/.env.local
+.env
+node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -39,3 +41,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ai-server
+ai-server/venv/
+ai-server/__pycache__/
+ai-server/.env
+*.pyc
+UPDATE_MODAL_SECRET.md
+update_secret.py
+update_secret.sh

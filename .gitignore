@@ -50,3 +50,5 @@ ai-server/.env
 UPDATE_MODAL_SECRET.md
 update_secret.py
 update_secret.sh
+ai/venv/
+ai/__pycache__/

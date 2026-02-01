@@ -68,6 +68,8 @@ export const message = pgTable("message", {
     .references(() => chat.id),
   role: text("role").notNull(),
   content: text("content").notNull(),
+  feedback: text("feedback"),
+  userComment: text("userComment"),
   createdAt: timestamp("createdAt").notNull().defaultNow(),
 })
 

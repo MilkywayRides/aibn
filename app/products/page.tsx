@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { IconPlus, IconEdit, IconTrash, IconSparkles, IconLoader2 } from "@tabler/icons-react"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { PageLoader } from "@/components/ui/page-loader"
 
 interface Product {
   id: string
@@ -28,6 +29,11 @@ export default function ProductsPage() {
   const router = useRouter()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
+  const [pageLoading, setPageLoading] = useState(true)
+
+  useEffect(() => {
+    document.title = "Products - Aibn"
+  }, [])
   const [dialogOpen, setDialogOpen] = useState(false)
   const [aiDialogOpen, setAiDialogOpen] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -41,14 +47,6 @@ export default function ProductsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [productToDelete, setProductToDelete] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (!session) {
-      router.push("/login")
-      return
-    }
-    loadProducts()
-  }, [session, router])
-
   const loadProducts = async () => {
     try {
       const response = await fetch("/api/products")
@@ -60,6 +58,17 @@ export default function ProductsPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!session) {
+      router.push("/login")
+      return
+    }
+    loadProducts()
+    setPageLoading(false)
+  }, [session, router])
+
+  if (pageLoading) return <PageLoader />
 
   const generateWithAI = async () => {
     if (!aiPrompt.trim()) return
@@ -198,8 +207,14 @@ export default function ProductsPage() {
   if (!session) return null
 
   return (
-    <SidebarProvider defaultOpen>
-      <AppSidebar />
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "calc(var(--spacing) * 72)",
+        } as React.CSSProperties
+      }
+    >
+      <AppSidebar variant="inset" />
       <SidebarInset className="flex-1">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 justify-between">
           <div className="flex items-center gap-2">

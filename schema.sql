@@ -45,3 +45,8 @@ CREATE TABLE IF NOT EXISTS "verification" (
   "createdAt" TIMESTAMP,
   "updatedAt" TIMESTAMP
 );
+
+
+-- Add feedback columns to message table
+ALTER TABLE "message" ADD COLUMN IF NOT EXISTS "feedback" TEXT;
+ALTER TABLE "message" ADD COLUMN IF NOT EXISTS "userComment" TEXT;

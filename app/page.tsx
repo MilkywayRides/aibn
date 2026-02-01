@@ -19,17 +19,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { IconArrowUp, IconMicrophone, IconHistory, IconSearch, IconPlus, IconSparkles, IconPlayerPause, IconStar, IconStarFilled, IconTrash } from "@tabler/icons-react"
+import { IconArrowUp, IconMicrophone, IconHistory, IconSearch, IconPlus, IconSparkles, IconPlayerPause, IconStar, IconStarFilled, IconTrash, IconThumbUp, IconThumbDown, IconCopy, IconCheck } from "@tabler/icons-react"
 import { useState, useEffect } from "react"
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
 import { useSession } from "@/lib/auth-client"
 import { useRouter } from "next/navigation"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { toast } from "sonner"
+import { PageLoader } from "@/components/ui/page-loader"
 
 export default function Home() {
   const { data: session, isPending } = useSession()
   const router = useRouter()
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([])
+  const [messages, setMessages] = useState<Array<{ id?: string; role: "user" | "assistant"; content: string; feedback?: string; copied?: boolean }>>([])
   const [input, setInput] = useState("")
   const [historyOpen, setHistoryOpen] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
@@ -38,6 +40,10 @@ export default function Home() {
   const [context, setContext] = useState<string | null>(null)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [chatToDelete, setChatToDelete] = useState<string | null>(null)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
+  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
+  const [feedbackComment, setFeedbackComment] = useState("")
+  const [pageLoading, setPageLoading] = useState(true)
 
   const loadChats = async () => {
     if (!session?.user?.id) return
@@ -86,18 +92,28 @@ export default function Home() {
   }
 
   useEffect(() => {
+    document.title = "Aibn - AI Chat"
+  }, [])
+
+  useEffect(() => {
+    if (!isPending) {
+      setPageLoading(false)
+    }
+  }, [isPending])
+
+  useEffect(() => {
     if (!isPending && !session) {
       router.push("/login")
     }
+  }, [isPending, session, router])
 
+  useEffect(() => {
     if (session?.user?.id) {
       loadChats()
     }
-  }, [session, isPending, router])
+  }, [session])
 
-  if (isPending || !session) {
-    return null
-  }
+  if (pageLoading) return <PageLoader />
 
   const handleSubmit = async () => {
     if (!input.trim() || isStreaming) return
@@ -123,7 +139,10 @@ export default function Home() {
         }),
       })
 
-      if (!response.ok) throw new Error("Stream failed")
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || "Stream failed")
+      }
 
       const reader = response.body?.getReader()
       if (!reader) throw new Error("No reader")
@@ -162,9 +181,26 @@ export default function Home() {
                 })
               }
 
-              if (data.type === "done" && streamChatId) {
-                // Navigate to chat page after streaming completes
-                router.replace(`/chat/${streamChatId}`)
+              if (data.type === "done") {
+                if (data.messageId) {
+                  // Update the last message with its ID
+                  setMessages(prev => {
+                    const updated = [...prev]
+                    const lastIdx = updated.length - 1
+                    if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                      updated[lastIdx] = {
+                        ...updated[lastIdx],
+                        id: data.messageId
+                      }
+                    }
+                    return updated
+                  })
+                }
+                
+                if (streamChatId) {
+                  // Navigate to chat page after streaming completes
+                  router.replace(`/chat/${streamChatId}`)
+                }
               }
             } catch {
               // Ignore parse errors
@@ -192,6 +228,77 @@ export default function Home() {
     }
   }
 
+  const handleFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
+    if (feedbackType === "dislike") {
+      setFeedbackMessageId(messageId)
+      setFeedbackDialogOpen(true)
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/messages/${messageId}/feedback`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback: feedbackType }),
+      })
+
+      if (response.ok) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId ? { ...msg, feedback: feedbackType } : msg
+        ))
+        toast.success("Feedback recorded")
+      } else {
+        toast.error("Failed to record feedback")
+      }
+    } catch (error) {
+      console.error("Failed to submit feedback:", error)
+      toast.error("Failed to record feedback")
+    }
+  }
+
+  const submitDislikeFeedback = async () => {
+    if (!feedbackMessageId) return
+
+    try {
+      const response = await fetch(`/api/messages/${feedbackMessageId}/feedback`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          feedback: "dislike",
+          userComment: feedbackComment 
+        }),
+      })
+
+      if (response.ok) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === feedbackMessageId ? { ...msg, feedback: "dislike" } : msg
+        ))
+        toast.success("Feedback recorded")
+      } else {
+        toast.error("Failed to record feedback")
+      }
+      
+      setFeedbackDialogOpen(false)
+      setFeedbackComment("")
+      setFeedbackMessageId(null)
+    } catch (error) {
+      console.error("Failed to submit feedback:", error)
+      toast.error("Failed to record feedback")
+    }
+  }
+
+  const handleCopy = async (index: number, content: string) => {
+    await navigator.clipboard.writeText(content)
+    setMessages(prev => prev.map((msg, i) => 
+      i === index ? { ...msg, copied: true } : msg
+    ))
+    setTimeout(() => {
+      setMessages(prev => prev.map((msg, i) => 
+        i === index ? { ...msg, copied: false } : msg
+      ))
+    }, 2000)
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
@@ -207,11 +314,11 @@ export default function Home() {
       }
     >
       <AppSidebar variant="inset" />
-      <SidebarInset>
+      <SidebarInset className="flex flex-col h-full overflow-hidden">
         {messages.length > 0 ? (
           // Chat View
-          <div className="flex flex-col h-full animate-in fade-in duration-500">
-            <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b p-2 rounded-br-lg flex items-center justify-between">
+          <div className="flex flex-col h-full">
+            <div className="flex-shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b p-2 rounded-br-lg flex items-center justify-between">
               <SidebarTrigger className="rounded-lg" />
               <div className="flex items-center gap-2">
                 <Button size="icon" variant="ghost" className="rounded-lg" onClick={() => setMessages([])}>
@@ -305,7 +412,37 @@ export default function Home() {
                               {message.content || "Thinking..."}
                             </AnimatedShinyText>
                           ) : (
-                            <p className="text-[15px] leading-7 text-foreground/90">{message.content || "Thinking..."}</p>
+                            <div className="space-y-2">
+                              <p className="text-[15px] leading-7 text-foreground/90">{message.content || "Thinking..."}</p>
+                              {message.id && !showShimmer && (
+                                <div className="flex items-center gap-1 pt-1">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className={`h-7 w-7 p-0 rounded-md hover:bg-accent ${message.copied ? "text-green-600" : ""}`}
+                                    onClick={() => handleCopy(index, message.content)}
+                                  >
+                                    {message.copied ? <IconCheck className="h-3.5 w-3.5" /> : <IconCopy className="h-3.5 w-3.5" />}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className={`h-7 w-7 p-0 rounded-md hover:bg-accent ${message.feedback === "like" ? "text-green-600" : ""}`}
+                                    onClick={() => handleFeedback(message.id!, "like")}
+                                  >
+                                    <IconThumbUp className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className={`h-7 w-7 p-0 rounded-md hover:bg-accent ${message.feedback === "dislike" ? "text-red-600" : ""}`}
+                                    onClick={() => handleFeedback(message.id!, "dislike")}
+                                  >
+                                    <IconThumbDown className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </div>
@@ -430,6 +567,33 @@ export default function Home() {
         description="Are you sure you want to delete this chat? This action cannot be undone."
         onConfirm={confirmDelete}
       />
+
+      <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Provide feedback</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              What was the issue with this response? Your feedback helps us improve.
+            </p>
+            <Textarea
+              value={feedbackComment}
+              onChange={(e) => setFeedbackComment(e.target.value)}
+              placeholder="Tell us what went wrong..."
+              rows={4}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setFeedbackDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submitDislikeFeedback}>
+                Submit Feedback
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   )
 }

@@ -11,6 +11,7 @@ import {
   IconSparkles,
   IconFileDescription,
   IconShoppingCart,
+  IconChartBar,
   IconStar,
   IconStarFilled,
   IconTrash,
@@ -39,6 +40,7 @@ import {
 const data = {
   navMain: [
     { title: "AI Chat", url: "/", icon: IconSparkles },
+    { title: "AI Performance", url: "/ai-performance", icon: IconChartBar },
     { title: "Blogs", url: "/blogs", icon: IconFileDescription },
     { title: "Products", url: "/products", icon: IconShoppingCart },
     { title: "Dashboard", url: "/dashboard", icon: IconDashboard },
@@ -65,11 +67,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const loadChats = async () => {
     if (!session?.user?.id) return
-    setLoading(true)
+    
+    // Check cache first
+    const cacheKey = `chats_${session.user.id}`
+    const cached = localStorage.getItem(cacheKey)
+    if (cached) {
+      setChats(JSON.parse(cached))
+      setLoading(false)
+    }
+    
+    // Fetch fresh data
     try {
       const response = await fetch(`/api/chat?userId=${session.user.id}`)
       const data = await response.json()
-      setChats(data.chats || [])
+      const freshChats = data.chats || []
+      setChats(freshChats)
+      localStorage.setItem(cacheKey, JSON.stringify(freshChats))
     } catch (err) {
       console.error("Failed to load chats:", err)
     } finally {
@@ -84,7 +97,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ favorite: !currentFavorite }),
       })
-      loadChats()
+      
+      // Update cache immediately
+      const updatedChats = chats.map(c => 
+        c.id === chatId ? { ...c, favorite: !currentFavorite } : c
+      )
+      setChats(updatedChats)
+      if (session?.user?.id) {
+        localStorage.setItem(`chats_${session.user.id}`, JSON.stringify(updatedChats))
+      }
     } catch (err) {
       console.error("Failed to toggle favorite:", err)
     }
@@ -99,7 +120,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     if (!chatToDelete) return
     try {
       await fetch(`/api/chat/${chatToDelete}`, { method: "DELETE" })
-      loadChats()
+      
+      // Remove from cache immediately
+      const updatedChats = chats.filter(c => c.id !== chatToDelete)
+      setChats(updatedChats)
+      if (session?.user?.id) {
+        localStorage.setItem(`chats_${session.user.id}`, JSON.stringify(updatedChats))
+      }
     } catch (err) {
       console.error("Failed to delete chat:", err)
     } finally {

@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { IconPlus, IconEdit, IconTrash, IconExternalLink } from "@tabler/icons-react"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { PageLoader } from "@/components/ui/page-loader"
 
 interface Blog {
   id: string
@@ -26,20 +27,13 @@ export default function BlogsPage() {
   const router = useRouter()
   const [blogs, setBlogs] = useState<Blog[]>([])
   const [loading, setLoading] = useState(true)
+  const [pageLoading, setPageLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingBlog, setEditingBlog] = useState<Blog | null>(null)
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [blogToDelete, setBlogToDelete] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!session) {
-      router.push("/login")
-      return
-    }
-    loadBlogs()
-  }, [session, router])
 
   const loadBlogs = async () => {
     try {
@@ -123,11 +117,32 @@ export default function BlogsPage() {
     setDialogOpen(true)
   }
 
+  useEffect(() => {
+    document.title = "Blogs - Aibn"
+  }, [])
+
+  useEffect(() => {
+    if (!session) {
+      router.push("/login")
+      return
+    }
+    loadBlogs()
+    setPageLoading(false)
+  }, [session, router])
+
+  if (pageLoading) return <PageLoader />
+
   if (!session) return null
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "calc(var(--spacing) * 72)",
+        } as React.CSSProperties
+      }
+    >
+      <AppSidebar variant="inset" />
       <SidebarInset>
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 justify-between">
           <div className="flex items-center gap-2">

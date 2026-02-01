@@ -31,38 +31,75 @@ async function generateChatTitle(firstMessage: string) {
 }
 
 export async function POST(request: NextRequest) {
-    const { message: userMessage, chatId, userId, context } = await request.json()
+    try {
+        const { message: userMessage, chatId, userId, context } = await request.json()
 
-    let currentChatId = chatId
+        let currentChatId = chatId
 
-    // Create new chat if no chatId provided
-    if (!currentChatId) {
-        currentChatId = generateChatId()
-        const title = await generateChatTitle(userMessage)
+        // Create new chat if no chatId provided
+        if (!currentChatId) {
+            currentChatId = generateChatId()
+            const title = await generateChatTitle(userMessage)
 
-        await db.insert(chat).values({
-            id: currentChatId,
-            userId,
-            title,
+            await db.insert(chat).values({
+                id: currentChatId,
+                userId,
+                title,
+                favorite: false,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            })
+        }
+
+        // Save user message
+        await db.insert(message).values({
+            id: Math.random().toString(36).substring(2),
+            chatId: currentChatId,
+            role: "user",
+            content: userMessage,
             createdAt: new Date(),
-            updatedAt: new Date(),
         })
-    }
-
-    // Save user message
-    await db.insert(message).values({
-        id: Math.random().toString(36).substring(2),
-        chatId: currentChatId,
-        role: "user",
-        content: userMessage,
-        createdAt: new Date(),
-    })
 
     const apiSecret = process.env.AI_API_SECRET
     const apiUrl = process.env.AI_MODEL_URL_V2
 
     if (!apiSecret || !apiUrl) {
-        return new Response(JSON.stringify({ error: "AI configuration missing" }), { status: 500 })
+        console.error("AI configuration missing:", { apiSecret: !!apiSecret, apiUrl: !!apiUrl })
+        
+        // Return mock response for development
+        const encoder = new TextEncoder()
+        const stream = new ReadableStream({
+            async start(controller) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chatId: currentChatId, type: "start" })}\n\n`))
+                
+                const mockResponse = "I'm a mock AI response. Please configure AI_MODEL_URL_V2 and AI_API_SECRET in your .env.local file to use the real AI."
+                const words = mockResponse.split(" ")
+                
+                for (const word of words) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ content: word + " ", type: "chunk" })}\n\n`))
+                    await new Promise(resolve => setTimeout(resolve, 50))
+                }
+                
+                await db.insert(message).values({
+                    id: Math.random().toString(36).substring(2),
+                    chatId: currentChatId,
+                    role: "assistant",
+                    content: mockResponse,
+                    createdAt: new Date(),
+                })
+                
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
+                controller.close()
+            }
+        })
+        
+        return new Response(stream, {
+            headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        })
     }
 
     // Build prompt based on context
@@ -171,16 +208,19 @@ CONTENT: [markdown content]`
 
                 // Save complete AI response
                 if (fullContent) {
+                    const messageId = Math.random().toString(36).substring(2)
                     await db.insert(message).values({
-                        id: Math.random().toString(36).substring(2),
+                        id: messageId,
                         chatId: currentChatId,
                         role: "assistant",
                         content: fullContent,
                         createdAt: new Date(),
                     })
+                    
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", fullContent, messageId })}\n\n`))
+                } else {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done" })}\n\n`))
                 }
-
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "done", fullContent })}\n\n`))
                 controller.close()
             } catch (error) {
                 console.error("Stream error:", error)
@@ -197,4 +237,14 @@ CONTENT: [markdown content]`
             "Connection": "keep-alive",
         },
     })
+    } catch (error) {
+        console.error("POST error:", error)
+        return new Response(
+            JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }), 
+            { 
+                status: 500,
+                headers: { "Content-Type": "application/json" }
+            }
+        )
+    }
 }

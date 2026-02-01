@@ -7,12 +7,15 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
-import { IconArrowUp, IconPlayerPause, IconLoader2 } from "@tabler/icons-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { IconArrowUp, IconPlayerPause, IconLoader2, IconThumbUp, IconThumbDown, IconCopy, IconCheck } from "@tabler/icons-react"
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
 import { PromptToolbar } from "@/components/ai/prompt-toolbar"
 import { Skeleton } from "@/components/ui/skeleton"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
+import { toast } from "sonner"
+import { PageLoader } from "@/components/ui/page-loader"
 
 export default function ChatPage() {
   const params = useParams()
@@ -20,10 +23,19 @@ export default function ChatPage() {
   const { data: session } = useSession()
   const chatId = params.id as string
 
-  const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([])
+  const [messages, setMessages] = useState<Array<{ id?: string; role: "user" | "assistant"; content: string; feedback?: string; copied?: boolean }>>([])
   const [input, setInput] = useState("")
   const [isStreaming, setIsStreaming] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
+  const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
+  const [feedbackComment, setFeedbackComment] = useState("")
+
+  useEffect(() => {
+    document.title = "Chat - Aibn"
+  }, [])
+
+  if (isLoading) return <PageLoader />
 
   const loadMessages = useCallback(async () => {
     if (!chatId) return
@@ -33,8 +45,10 @@ export default function ChatPage() {
       const data = await res.json()
       if (data.messages) {
         setMessages(data.messages.map((m: any) => ({
+          id: m.id,
           role: m.role,
-          content: m.content
+          content: m.content,
+          feedback: m.feedback
         })))
       }
     } catch (err) {
@@ -75,7 +89,11 @@ export default function ChatPage() {
         }),
       })
 
-      if (!response.ok) throw new Error("Stream failed")
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error("Stream error:", errorData)
+        throw new Error(errorData.error || "Stream failed")
+      }
 
       const reader = response.body?.getReader()
       if (!reader) throw new Error("No reader")
@@ -135,6 +153,77 @@ export default function ChatPage() {
       e.preventDefault()
       handleSubmit()
     }
+  }
+
+  const handleFeedback = async (messageId: string, feedbackType: "like" | "dislike") => {
+    if (feedbackType === "dislike") {
+      setFeedbackMessageId(messageId)
+      setFeedbackDialogOpen(true)
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/messages/${messageId}/feedback`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feedback: feedbackType }),
+      })
+
+      if (response.ok) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId ? { ...msg, feedback: feedbackType } : msg
+        ))
+        toast.success("Feedback recorded")
+      } else {
+        toast.error("Failed to record feedback")
+      }
+    } catch (error) {
+      console.error("Failed to submit feedback:", error)
+      toast.error("Failed to record feedback")
+    }
+  }
+
+  const submitDislikeFeedback = async () => {
+    if (!feedbackMessageId) return
+
+    try {
+      const response = await fetch(`/api/messages/${feedbackMessageId}/feedback`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          feedback: "dislike",
+          userComment: feedbackComment 
+        }),
+      })
+
+      if (response.ok) {
+        setMessages(prev => prev.map(msg => 
+          msg.id === feedbackMessageId ? { ...msg, feedback: "dislike" } : msg
+        ))
+        toast.success("Feedback recorded")
+      } else {
+        toast.error("Failed to record feedback")
+      }
+      
+      setFeedbackDialogOpen(false)
+      setFeedbackComment("")
+      setFeedbackMessageId(null)
+    } catch (error) {
+      console.error("Failed to submit feedback:", error)
+      toast.error("Failed to record feedback")
+    }
+  }
+
+  const handleCopy = async (index: number, content: string) => {
+    await navigator.clipboard.writeText(content)
+    setMessages(prev => prev.map((msg, i) => 
+      i === index ? { ...msg, copied: true } : msg
+    ))
+    setTimeout(() => {
+      setMessages(prev => prev.map((msg, i) => 
+        i === index ? { ...msg, copied: false } : msg
+      ))
+    }, 2000)
   }
 
   return (
@@ -202,15 +291,45 @@ export default function ChatPage() {
                             <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
                           </div>
                         ) : (
-                          <div className="prose prose-sm dark:prose-invert max-w-none">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
-                              }}
-                            >
-                              {message.content || "..."}
-                            </ReactMarkdown>
+                          <div className="space-y-2">
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
+                                }}
+                              >
+                                {message.content || "..."}
+                              </ReactMarkdown>
+                            </div>
+                            {message.id && !showShimmer && (
+                              <div className="flex items-center gap-1 pt-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className={`h-7 w-7 p-0 rounded-md hover:bg-accent ${message.copied ? "text-green-600" : ""}`}
+                                  onClick={() => handleCopy(index, message.content)}
+                                >
+                                  {message.copied ? <IconCheck className="h-3.5 w-3.5" /> : <IconCopy className="h-3.5 w-3.5" />}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className={`h-7 w-7 p-0 rounded-md hover:bg-accent ${message.feedback === "like" ? "text-green-600" : ""}`}
+                                  onClick={() => handleFeedback(message.id!, "like")}
+                                >
+                                  <IconThumbUp className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className={`h-7 w-7 p-0 rounded-md hover:bg-accent ${message.feedback === "dislike" ? "text-red-600" : ""}`}
+                                  onClick={() => handleFeedback(message.id!, "dislike")}
+                                >
+                                  <IconThumbDown className="h-3.5 w-3.5" />
+                                </Button>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -257,6 +376,33 @@ export default function ChatPage() {
           </div>
         </div>
       </SidebarInset>
+
+      <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Provide feedback</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              What was the issue with this response? Your feedback helps us improve.
+            </p>
+            <Textarea
+              value={feedbackComment}
+              onChange={(e) => setFeedbackComment(e.target.value)}
+              placeholder="Tell us what went wrong..."
+              rows={4}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setFeedbackDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={submitDislikeFeedback}>
+                Submit Feedback
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   )
 }

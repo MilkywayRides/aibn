@@ -31,12 +31,19 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
-import { IconSparkles, IconChevronDown, IconPaperclip, IconAt, IconApps, IconFile, IconFolder, IconCode, IconBrandGithub, IconBrandGoogleDrive } from "@tabler/icons-react"
+import { IconSparkles, IconChevronDown, IconPaperclip, IconAt, IconApps, IconFile, IconFolder, IconCode, IconBrandGithub, IconBrandGoogleDrive, IconFileDescription, IconShoppingCart } from "@tabler/icons-react"
 
-export function PromptToolbar() {
+export function PromptToolbar({ onContextChange }: { onContextChange?: (context: string | null) => void }) {
   const [appsOpen, setAppsOpen] = useState(false)
   const [githubEnabled, setGithubEnabled] = useState(false)
   const [driveEnabled, setDriveEnabled] = useState(false)
+  const [selectedContext, setSelectedContext] = useState<string | null>(null)
+
+  const handleContextSelect = (context: string) => {
+    const newContext = selectedContext === context ? null : context
+    setSelectedContext(newContext)
+    onContextChange?.(newContext)
+  }
 
   return (
     <ScrollArea className="w-full">
@@ -66,7 +73,7 @@ export function PromptToolbar() {
 
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-medium hover:bg-accent/50 flex-shrink-0">
+          <Button variant="ghost" size="sm" className={`h-8 rounded-full text-xs font-medium hover:bg-accent/50 flex-shrink-0 ${selectedContext ? 'bg-accent' : ''}`}>
             <IconAt className="h-4 w-4 mr-1.5" />
             Context
           </Button>
@@ -76,6 +83,23 @@ export function PromptToolbar() {
             <CommandInput placeholder="Search context..." />
             <CommandList>
               <CommandEmpty>No context found.</CommandEmpty>
+              <CommandGroup heading="Actions">
+                <CommandItem onSelect={() => handleContextSelect("create-blog")}>
+                  <IconFileDescription className="h-4 w-4 mr-2" />
+                  <span>Create Blog</span>
+                  {selectedContext === "create-blog" && <span className="ml-auto text-xs">✓</span>}
+                </CommandItem>
+                <CommandItem onSelect={() => handleContextSelect("create-product")}>
+                  <IconShoppingCart className="h-4 w-4 mr-2" />
+                  <span>Create Product</span>
+                  {selectedContext === "create-product" && <span className="ml-auto text-xs">✓</span>}
+                </CommandItem>
+                <CommandItem onSelect={() => handleContextSelect("manage-products")}>
+                  <IconShoppingCart className="h-4 w-4 mr-2" />
+                  <span>Manage Products</span>
+                  {selectedContext === "manage-products" && <span className="ml-auto text-xs">✓</span>}
+                </CommandItem>
+              </CommandGroup>
               <CommandGroup heading="Files">
                 <CommandItem>
                   <IconFile className="h-4 w-4 mr-2" />

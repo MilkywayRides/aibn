@@ -19,107 +19,170 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { IconArrowUp, IconMicrophone, IconHistory, IconSearch, IconPlus, IconSparkles, IconPlayerPause } from "@tabler/icons-react"
-import { useState } from "react"
+import { IconArrowUp, IconMicrophone, IconHistory, IconSearch, IconPlus, IconSparkles, IconPlayerPause, IconStar, IconStarFilled, IconTrash } from "@tabler/icons-react"
+import { useState, useEffect } from "react"
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
+import { useSession } from "@/lib/auth-client"
+import { useRouter } from "next/navigation"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 
 export default function Home() {
+  const { data: session, isPending } = useSession()
+  const router = useRouter()
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([])
   const [input, setInput] = useState("")
   const [historyOpen, setHistoryOpen] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [abortController, setAbortController] = useState<AbortController | null>(null)
+  const [chats, setChats] = useState<Array<{ id: string; title: string; favorite: boolean; createdAt: Date }>>([])
+  const [context, setContext] = useState<string | null>(null)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [chatToDelete, setChatToDelete] = useState<string | null>(null)
+
+  const loadChats = async () => {
+    if (!session?.user?.id) return
+
+    try {
+      const response = await fetch(`/api/chat?userId=${session.user.id}`)
+      const data = await response.json()
+      setChats(data.chats || [])
+    } catch (err) {
+      console.error("Failed to load chats:", err)
+    }
+  }
+
+  const toggleFavorite = async (chatId: string, currentFavorite: boolean, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      await fetch(`/api/chat/${chatId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ favorite: !currentFavorite }),
+      })
+      loadChats()
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err)
+    }
+  }
+
+  const deleteChat = async (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setChatToDelete(chatId)
+    setDeleteDialogOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!chatToDelete) return
+
+    try {
+      await fetch(`/api/chat/${chatToDelete}`, { method: "DELETE" })
+      loadChats()
+    } catch (err) {
+      console.error("Failed to delete chat:", err)
+    } finally {
+      setDeleteDialogOpen(false)
+      setChatToDelete(null)
+    }
+  }
+
+  useEffect(() => {
+    if (!isPending && !session) {
+      router.push("/login")
+    }
+
+    if (session?.user?.id) {
+      loadChats()
+    }
+  }, [session, isPending, router])
+
+  if (isPending || !session) {
+    return null
+  }
 
   const handleSubmit = async () => {
     if (!input.trim() || isStreaming) return
-    
-    const userMessage = { role: "user" as const, content: input }
-    const userInput = input
-    setMessages([...messages, userMessage])
+
+    const userInput = input.trim()
     setInput("")
+
+    // Optimistic UI - show message immediately
+    setMessages(prev => [...prev, { role: "user", content: userInput }])
+    setMessages(prev => [...prev, { role: "assistant", content: "" }])
     setIsStreaming(true)
 
-    const assistantMessage = { role: "assistant" as const, content: "" }
-    setMessages(prev => [...prev, assistantMessage])
-
-    const controller = new AbortController()
-    setAbortController(controller)
+    let streamChatId = ""
 
     try {
-      const response = await fetch(AI_CONFIG.modelUrl, {
+      const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userInput }),
-        signal: controller.signal,
+        body: JSON.stringify({
+          message: userInput,
+          userId: session?.user?.id,
+          context,
+        }),
       })
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`)
+      if (!response.ok) throw new Error("Stream failed")
 
-      const contentType = response.headers.get("content-type")
-      console.log("Content-Type:", contentType)
-      
-      if (contentType?.includes("text/event-stream")) {
-        console.log("Using streaming mode")
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error("No reader available")
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error("No reader")
 
-        const decoder = new TextDecoder()
-        let buffer = ""
-        
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done) break
-          
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ""
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6)
-              try {
-                const json = JSON.parse(data)
-                if (json.content) {
-                  setMessages(prev => {
-                    const updated = [...prev]
-                    updated[updated.length - 1].content += json.content
-                    return updated
-                  })
-                }
-              } catch {}
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6))
+
+              if (data.type === "start" && data.chatId) {
+                streamChatId = data.chatId
+              }
+
+              if (data.type === "chunk" && data.content) {
+                setMessages(prev => {
+                  const updated = [...prev]
+                  const lastIdx = updated.length - 1
+                  if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                    updated[lastIdx] = {
+                      ...updated[lastIdx],
+                      content: updated[lastIdx].content + data.content
+                    }
+                  }
+                  return updated
+                })
+              }
+
+              if (data.type === "done" && streamChatId) {
+                // Navigate to chat page after streaming completes
+                router.replace(`/chat/${streamChatId}`)
+              }
+            } catch {
+              // Ignore parse errors
             }
           }
         }
-      } else {
-        console.log("Using non-streaming mode")
-        const data = await response.json()
-        console.log("Response data:", data)
-        const content = data.content || data.response || "No response"
-        console.log("Setting content:", content)
-        setMessages(prev => {
-          const updated = [...prev]
-          updated[updated.length - 1].content = content
-          return updated
-        })
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        setMessages(prev => {
-          const updated = [...prev]
-          updated[updated.length - 1].content += " [Stopped]"
-          return updated
-        })
-      } else {
-        console.error("Error:", error)
-        setMessages(prev => {
-          const updated = [...prev]
-          updated[updated.length - 1].content = `Error: ${error instanceof Error ? error.message : "Failed to connect"}`
-          return updated
-        })
-      }
+      console.error("Chat error:", error)
+      setMessages(prev => {
+        const updated = [...prev]
+        if (updated.length > 0) {
+          updated[updated.length - 1].content = "Sorry, something went wrong. Please try again."
+        }
+        return updated
+      })
     } finally {
       setIsStreaming(false)
-      setAbortController(null)
     }
   }
 
@@ -160,58 +223,59 @@ export default function Home() {
                       <IconHistory className="h-5 w-5" />
                     </Button>
                   </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Chat History</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="relative">
-                <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Search conversations..." className="pl-9" />
-              </div>
-              <ScrollArea className="h-[400px]">
-                <div className="space-y-2 pr-4">
-                  <div className="group p-4 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1 flex-1">
-                        <p className="text-sm font-medium leading-none">How to implement authentication in Next.js?</p>
-                        <p className="text-xs text-muted-foreground">Discussed NextAuth.js setup and configuration</p>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Chat History</DialogTitle>
+                    </DialogHeader>
+                    <ScrollArea className="h-[400px]">
+                      <div className="space-y-2 pr-4">
+                        {chats.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-8">No chat history yet</p>
+                        ) : (
+                          chats.map((chat) => (
+                            <div
+                              key={chat.id}
+                              onClick={() => {
+                                router.push(`/chat/${chat.id}`)
+                                setHistoryOpen(false)
+                              }}
+                              className="group p-4 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="space-y-1 flex-1">
+                                  <p className="text-sm font-medium leading-none">{chat.title}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {new Date(chat.createdAt).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => toggleFavorite(chat.id, chat.favorite, e)}
+                                  >
+                                    {chat.favorite ? (
+                                      <IconStarFilled className="h-4 w-4 text-yellow-500" />
+                                    ) : (
+                                      <IconStar className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => deleteChat(chat.id, e)}
+                                  >
+                                    <IconTrash className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">2h ago</span>
-                    </div>
-                  </div>
-                  <div className="group p-4 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1 flex-1">
-                        <p className="text-sm font-medium leading-none">React state management best practices</p>
-                        <p className="text-xs text-muted-foreground">Compared Redux, Zustand, and Context API</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">Yesterday</span>
-                    </div>
-                  </div>
-                  <div className="group p-4 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1 flex-1">
-                        <p className="text-sm font-medium leading-none">Database schema design for e-commerce</p>
-                        <p className="text-xs text-muted-foreground">Discussed tables, relationships, and indexing</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">2 days ago</span>
-                    </div>
-                  </div>
-                  <div className="group p-4 rounded-lg border bg-card hover:bg-accent/50 cursor-pointer transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1 flex-1">
-                        <p className="text-sm font-medium leading-none">Optimizing React performance</p>
-                        <p className="text-xs text-muted-foreground">Memoization, lazy loading, and code splitting</p>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">3 days ago</span>
-                    </div>
-                  </div>
-                </div>
-              </ScrollArea>
-            </div>
-          </DialogContent>
-        </Dialog>
+                    </ScrollArea>
+                  </DialogContent>
+                </Dialog>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto pb-32">
@@ -219,7 +283,7 @@ export default function Home() {
                 {messages.map((message, index) => {
                   const isLastMessage = index === messages.length - 1
                   const showShimmer = isLastMessage && message.role === "assistant" && isStreaming
-                  
+
                   return (
                     <div key={index} className={`flex gap-4 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                       {message.role === "assistant" && (
@@ -260,14 +324,14 @@ export default function Home() {
               <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent h-32" />
               <div className="relative max-w-3xl mx-auto p-4 pointer-events-auto">
                 <div className="flex flex-col gap-2 rounded-3xl border border-border/30 bg-muted/50 backdrop-blur-2xl p-3 shadow-2xl shadow-black/20">
-                  <PromptToolbar />
+                  <PromptToolbar onContextChange={setContext} />
 
                   <div className="flex items-end gap-2 px-3 pb-1">
-                    <Textarea 
+                    <Textarea
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Message" 
+                      placeholder="Message"
                       className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground/60 min-h-[52px] max-h-[200px] resize-none"
                       rows={1}
                     />
@@ -298,66 +362,74 @@ export default function Home() {
             </div>
             <div className="flex-1 flex flex-col items-center justify-center p-4">
               <div className="w-full max-w-3xl space-y-8">
-              <div className="text-center space-y-2">
-                <h1 className="text-5xl font-semibold tracking-tight">
-                  What can I help with?
-                </h1>
-              </div>
+                <div className="text-center space-y-2">
+                  <h1 className="text-5xl font-semibold tracking-tight">
+                    What can I help with?
+                  </h1>
+                </div>
 
-              <div className="relative">
-                <div className="flex flex-col gap-2 rounded-3xl border border-border/30 bg-muted/50 backdrop-blur-2xl p-3 shadow-2xl shadow-black/20 transition-all focus-within:shadow-2xl focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10">
-                  <PromptToolbar />
+                <div className="relative">
+                  <div className="flex flex-col gap-2 rounded-3xl border border-border/30 bg-muted/50 backdrop-blur-2xl p-3 shadow-2xl shadow-black/20 transition-all focus-within:shadow-2xl focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10">
+                    <PromptToolbar onContextChange={setContext} />
 
-                  <div className="flex items-end gap-2 px-3 pb-1">
-                    <Textarea 
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Message" 
-                      className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground/60 min-h-[52px] max-h-[200px] resize-none"
-                      rows={1}
-                    />
-                    <div className="flex gap-2 flex-shrink-0">
-                      <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full hover:bg-accent/50">
-                        <IconMicrophone className="h-5 w-5" />
-                      </Button>
-                      {isStreaming ? (
-                        <Button onClick={handleStop} size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-sm">
-                          <IconPlayerPause className="h-5 w-5" />
+                    <div className="flex items-end gap-2 px-3 pb-1">
+                      <Textarea
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Message"
+                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground/60 min-h-[52px] max-h-[200px] resize-none"
+                        rows={1}
+                      />
+                      <div className="flex gap-2 flex-shrink-0">
+                        <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full hover:bg-accent/50">
+                          <IconMicrophone className="h-5 w-5" />
                         </Button>
-                      ) : (
-                        <Button onClick={handleSubmit} size="icon" className="h-9 w-9 rounded-full shadow-sm">
-                          <IconArrowUp className="h-5 w-5" />
-                        </Button>
-                      )}
+                        {isStreaming ? (
+                          <Button onClick={handleStop} size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-sm">
+                            <IconPlayerPause className="h-5 w-5" />
+                          </Button>
+                        ) : (
+                          <Button onClick={handleSubmit} size="icon" className="h-9 w-9 rounded-full shadow-sm">
+                            <IconArrowUp className="h-5 w-5" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
-                  <div className="text-sm font-medium">Create a content calendar</div>
-                  <div className="text-xs text-muted-foreground mt-1">for a newsletter</div>
-                </button>
-                <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
-                  <div className="text-sm font-medium">Help me debug</div>
-                  <div className="text-xs text-muted-foreground mt-1">a Python script</div>
-                </button>
-                <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
-                  <div className="text-sm font-medium">Analyze this data</div>
-                  <div className="text-xs text-muted-foreground mt-1">with visualizations</div>
-                </button>
-                <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
-                  <div className="text-sm font-medium">Explain a concept</div>
-                  <div className="text-xs text-muted-foreground mt-1">in simple terms</div>
-                </button>
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
+                    <div className="text-sm font-medium">Create a content calendar</div>
+                    <div className="text-xs text-muted-foreground mt-1">for a newsletter</div>
+                  </button>
+                  <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
+                    <div className="text-sm font-medium">Help me debug</div>
+                    <div className="text-xs text-muted-foreground mt-1">a Python script</div>
+                  </button>
+                  <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
+                    <div className="text-sm font-medium">Analyze this data</div>
+                    <div className="text-xs text-muted-foreground mt-1">with visualizations</div>
+                  </button>
+                  <button className="text-left rounded-2xl border border-border/40 bg-card/50 backdrop-blur p-4 hover:bg-accent/50 hover:border-border transition-all">
+                    <div className="text-sm font-medium">Explain a concept</div>
+                    <div className="text-xs text-muted-foreground mt-1">in simple terms</div>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
       </SidebarInset>
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        onOpenChange={setDeleteDialogOpen}
+        title="Delete Chat"
+        description="Are you sure you want to delete this chat? This action cannot be undone."
+        onConfirm={confirmDelete}
+      />
     </SidebarProvider>
   )
 }

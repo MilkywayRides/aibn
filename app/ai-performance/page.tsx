@@ -116,14 +116,15 @@ export default function AIPerformancePage() {
       }
     >
       <AppSidebar variant="inset" />
-      <SidebarInset className="flex flex-col h-full">
+      <SidebarInset className="h-screen overflow-hidden flex flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger />
           <h1 className="text-lg font-semibold">AI Performance</h1>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-6xl mx-auto space-y-6">
+        <ScrollArea className="h-full">
+          <div className="p-6">
+            <div className="max-w-6xl mx-auto space-y-6 pb-6">
               <div className="grid gap-4 md:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -388,7 +389,8 @@ export default function AIPerformancePage() {
               </TabsContent>
             </Tabs>
           </div>
-        </div>
+          </div>
+        </ScrollArea>
       </SidebarInset>
     </SidebarProvider>
   )

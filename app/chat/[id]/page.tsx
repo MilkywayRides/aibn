@@ -3,14 +3,17 @@
 import { useParams, useRouter } from "next/navigation"
 import { useState, useEffect, useCallback } from "react"
 import { useSession } from "@/lib/auth-client"
+import { useSidebar } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
-import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { IconArrowUp, IconPlayerPause, IconLoader2, IconThumbUp, IconThumbDown, IconCopy, IconCheck } from "@tabler/icons-react"
+import { IconLoader2, IconThumbUp, IconThumbDown, IconCopy, IconCheck, IconPencil } from "@tabler/icons-react"
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
-import { PromptToolbar } from "@/components/ai/prompt-toolbar"
+import { AIPromptBox } from "@/components/ai/ai-prompt-box"
+import { Canvas, CanvasPreview } from "@/components/ai/canvas"
 import { Skeleton } from "@/components/ui/skeleton"
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
@@ -30,12 +33,24 @@ export default function ChatPage() {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false)
   const [feedbackMessageId, setFeedbackMessageId] = useState<string | null>(null)
   const [feedbackComment, setFeedbackComment] = useState("")
+  const [selectedModel, setSelectedModel] = useState("Aibn")
+  const [selectedContext, setSelectedContext] = useState<string | null>(null)
+  const [canvasOpen, setCanvasOpen] = useState(false)
+  const [canvasContent, setCanvasContent] = useState("")
+  const [canvasTitle, setCanvasTitle] = useState("Untitled")
+  const [showCanvasPreview, setShowCanvasPreview] = useState(false)
+  const [canvasMessageIds, setCanvasMessageIds] = useState<Set<string>>(new Set())
 
-  useEffect(() => {
-    document.title = "Chat - Aibn"
-  }, [])
+  const handleCanvasOpen = (open: boolean) => {
+    setCanvasOpen(open)
+  }
 
-  if (isLoading) return <PageLoader />
+  const handleContextChange = (context: string | null) => {
+    setSelectedContext(context)
+    if (context === "canvas") {
+      handleCanvasOpen(true)
+    }
+  }
 
   const loadMessages = useCallback(async () => {
     if (!chatId) return
@@ -59,12 +74,18 @@ export default function ChatPage() {
   }, [chatId])
 
   useEffect(() => {
+    document.title = "Chat - Aibn"
+  }, [])
+
+  useEffect(() => {
     if (!session) {
       router.push("/login")
       return
     }
     loadMessages()
   }, [chatId, session, router, loadMessages])
+
+  if (isLoading) return <PageLoader />
 
   const handleSubmit = async () => {
     if (!input.trim() || isStreaming) return
@@ -75,8 +96,14 @@ export default function ChatPage() {
     // Add user message immediately
     setMessages(prev => [...prev, { role: "user", content: userMessage }])
     // Add empty assistant message for streaming
-    setMessages(prev => [...prev, { role: "assistant", content: "" }])
+    const tempMessageId = `temp-${Date.now()}`
+    setMessages(prev => [...prev, { role: "assistant", content: "", id: tempMessageId }])
     setIsStreaming(true)
+
+    // Track if this is a canvas message
+    if (selectedContext === "canvas") {
+      setCanvasMessageIds(prev => new Set(prev).add(tempMessageId))
+    }
 
     try {
       const response = await fetch("/api/chat/stream", {
@@ -86,6 +113,8 @@ export default function ChatPage() {
           message: userMessage,
           chatId,
           userId: session?.user?.id,
+          model: selectedModel,
+          context: selectedContext,
         }),
       })
 
@@ -120,9 +149,22 @@ export default function ChatPage() {
                   const updated = [...prev]
                   const lastIdx = updated.length - 1
                   if (lastIdx >= 0 && updated[lastIdx].role === "assistant") {
+                    const newContent = updated[lastIdx].content + data.content
                     updated[lastIdx] = {
                       ...updated[lastIdx],
-                      content: updated[lastIdx].content + data.content
+                      content: newContent
+                    }
+                    
+                    // If canvas context, update canvas content and show preview
+                    if (selectedContext === "canvas") {
+                      setCanvasContent(newContent)
+                      setShowCanvasPreview(true)
+                      
+                      // Extract title from first line if it looks like a title
+                      const firstLine = newContent.split('\n')[0].trim()
+                      if (firstLine && firstLine.length < 100 && !firstLine.startsWith('#')) {
+                        setCanvasTitle(firstLine)
+                      }
                     }
                   }
                   return updated
@@ -145,13 +187,6 @@ export default function ChatPage() {
       })
     } finally {
       setIsStreaming(false)
-    }
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
     }
   }
 
@@ -233,15 +268,18 @@ export default function ChatPage() {
           "--sidebar-width": "calc(var(--spacing) * 72)",
         } as React.CSSProperties
       }
+      open={!canvasOpen}
     >
-      <AppSidebar variant="inset" />
-      <SidebarInset className="overflow-hidden">
-        <header className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b p-2 rounded-br-lg flex items-center gap-2">
-          <SidebarTrigger className="rounded-lg" />
-        </header>
+      <AppSidebar variant="inset" collapsible="icon" />
+      <SidebarInset className="flex flex-col h-screen overflow-hidden">
+        <div className="flex h-full">
+          <div className="flex-1 flex flex-col">
+            <header className="flex-shrink-0 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b p-2 rounded-br-lg flex items-center gap-2">
+              <SidebarTrigger className="rounded-lg" />
+            </header>
 
-        <div className="flex flex-col h-[calc(100vh-3.5rem)] relative">
-          <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 flex flex-col relative overflow-hidden">
+          <ScrollArea className="h-full">
             <div className="max-w-4xl mx-auto px-4 py-8 pb-40 space-y-8">
               {messages.map((message, index) => {
                 const isLastMessage = index === messages.length - 1
@@ -279,17 +317,37 @@ export default function ChatPage() {
                             <span>Thinking...</span>
                           </div>
                         ) : showShimmer ? (
-                          <div className="prose prose-sm dark:prose-invert max-w-none">
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
-                              }}
-                            >
-                              {message.content}
-                            </ReactMarkdown>
-                            <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
-                          </div>
+                          message.id && canvasMessageIds.has(message.id) ? (
+                            <CanvasPreview
+                              title={canvasTitle}
+                              content={message.content}
+                              onClick={() => handleCanvasOpen(true)}
+                            />
+                          ) : (
+                            <div className="prose prose-sm dark:prose-invert max-w-none">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  a: ({ node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
+                              <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
+                            </div>
+                          )
+                        ) : showCanvasPreview && index === messages.length - 1 ? (
+                          <CanvasPreview
+                            title={canvasTitle}
+                            content={message.content}
+                            onClick={() => handleCanvasOpen(true)}
+                          />
+                        ) : message.id && canvasMessageIds.has(message.id) ? (
+                          <CanvasPreview
+                            title={canvasTitle}
+                            content={message.content}
+                            onClick={() => handleCanvasOpen(true)}
+                          />
                         ) : (
                           <div className="space-y-2">
                             <div className="prose prose-sm dark:prose-invert max-w-none">
@@ -328,6 +386,17 @@ export default function ChatPage() {
                                 >
                                   <IconThumbDown className="h-3.5 w-3.5" />
                                 </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 w-7 p-0 rounded-md hover:bg-accent"
+                                  onClick={() => {
+                                    setCanvasContent(message.content)
+                                    handleCanvasOpen(true)
+                                  }}
+                                >
+                                  <IconPencil className="h-3.5 w-3.5" />
+                                </Button>
                               </div>
                             )}
                           </div>
@@ -343,40 +412,33 @@ export default function ChatPage() {
                 )
               })}
             </div>
-          </div>
+          </ScrollArea>
 
           <div className="absolute bottom-0 left-0 right-0 pointer-events-none">
             <div className="absolute inset-0 bg-gradient-to-t from-background via-background/90 to-transparent h-32" />
             <div className="relative max-w-4xl mx-auto p-4 pointer-events-auto">
-              <div className="flex flex-col gap-2 rounded-3xl border border-border/30 bg-background/95 backdrop-blur-xl p-3 shadow-2xl">
-                <PromptToolbar />
-                <div className="flex items-end gap-2 px-3 pb-1">
-                  <Textarea
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Message"
-                    className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground/60 min-h-[52px] max-h-[200px] resize-none"
-                    rows={1}
-                  />
-                  <div className="flex gap-2 flex-shrink-0">
-                    {isStreaming ? (
-                      <Button size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-sm">
-                        <IconPlayerPause className="h-5 w-5" />
-                      </Button>
-                    ) : (
-                      <Button onClick={handleSubmit} size="icon" className="h-9 w-9 rounded-full shadow-sm">
-                        <IconArrowUp className="h-5 w-5" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <AIPromptBox
+                input={input}
+                setInput={setInput}
+                onSubmit={handleSubmit}
+                isStreaming={isStreaming}
+                onModelChange={setSelectedModel}
+                selectedModel={selectedModel}
+                onContextChange={handleContextChange}
+              />
             </div>
           </div>
+            </div>
+          </div>
+          <Canvas 
+            isOpen={canvasOpen} 
+            onClose={() => handleCanvasOpen(false)} 
+            content={canvasContent}
+            onContentChange={setCanvasContent}
+            title={canvasTitle}
+          />
         </div>
       </SidebarInset>
-
       <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
         <DialogContent>
           <DialogHeader>

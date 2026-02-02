@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Badge } from "@/components/ui/badge"
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area"
 import {
   Dialog,
@@ -31,13 +32,55 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
-import { IconSparkles, IconChevronDown, IconPaperclip, IconAt, IconApps, IconFile, IconFolder, IconCode, IconBrandGithub, IconBrandGoogleDrive, IconFileDescription, IconShoppingCart } from "@tabler/icons-react"
+import { IconSparkles, IconChevronDown, IconPaperclip, IconAt, IconApps, IconFile, IconFolder, IconCode, IconBrandGithub, IconBrandGoogleDrive, IconFileDescription, IconShoppingCart, IconPencil } from "@tabler/icons-react"
+import { FileUpload } from "./file-upload"
 
-export function PromptToolbar({ onContextChange }: { onContextChange?: (context: string | null) => void }) {
+export function PromptToolbar({ 
+  onContextChange, 
+  onModelChange, 
+  selectedModel: externalSelectedModel 
+}: { 
+  onContextChange?: (context: string | null) => void
+  onModelChange?: (model: string) => void
+  selectedModel?: string
+}) {
   const [appsOpen, setAppsOpen] = useState(false)
   const [githubEnabled, setGithubEnabled] = useState(false)
   const [driveEnabled, setDriveEnabled] = useState(false)
   const [selectedContext, setSelectedContext] = useState<string | null>(null)
+  const [availableModels, setAvailableModels] = useState<string[]>(["Aibn"])
+  const [selectedModel, setSelectedModel] = useState(externalSelectedModel || "Aibn")
+
+  useEffect(() => {
+    if (externalSelectedModel) {
+      setSelectedModel(externalSelectedModel)
+    }
+  }, [externalSelectedModel])
+
+  useEffect(() => {
+    loadAvailableModels()
+  }, [])
+
+  const loadAvailableModels = async () => {
+    try {
+      const response = await fetch("/api/api-keys")
+      const data = await response.json()
+      const models = ["Aibn"]
+      
+      if (data.providers?.openai) models.push("gpt-4", "gpt-3.5-turbo")
+      if (data.providers?.claude) models.push("claude-3-opus", "claude-3-sonnet")
+      if (data.providers?.gemini) models.push("gemini-pro")
+      
+      setAvailableModels(models)
+    } catch (error) {
+      console.error("Failed to load models:", error)
+    }
+  }
+
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model)
+    onModelChange?.(model)
+  }
 
   const handleContextSelect = (context: string) => {
     const newContext = selectedContext === context ? null : context
@@ -52,24 +95,38 @@ export function PromptToolbar({ onContextChange }: { onContextChange?: (context:
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-medium hover:bg-accent/50 flex-shrink-0">
             <IconSparkles className="h-4 w-4 mr-1.5" />
-            Aibn-v1
+            {selectedModel}
             <IconChevronDown className="h-3.5 w-3.5 ml-1.5 opacity-50" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[160px]">
-          <DropdownMenuItem>
-            <IconSparkles className="h-4 w-4 mr-2" />
-            Aibn-v1
-          </DropdownMenuItem>
+          {availableModels.map((model) => (
+            <DropdownMenuItem key={model} onClick={() => handleModelChange(model)}>
+              <IconSparkles className="h-4 w-4 mr-2" />
+              <span className="flex-1">{model}</span>
+              {model === "Aibn" && <Badge variant="secondary" className="ml-2 text-xs">Recommended</Badge>}
+              {selectedModel === model && <span className="ml-2 text-xs">✓</span>}
+            </DropdownMenuItem>
+          ))}
         </DropdownMenuContent>
       </DropdownMenu>
 
       <div className="h-5 w-px bg-border/50 flex-shrink-0" />
 
-      <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-medium hover:bg-accent/50 flex-shrink-0">
-        <IconPaperclip className="h-4 w-4 mr-1.5" />
-        Files
-      </Button>
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="sm" className="h-8 rounded-full text-xs font-medium hover:bg-accent/50 flex-shrink-0">
+            <IconPaperclip className="h-4 w-4 mr-1.5" />
+            Files
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Upload Files</DialogTitle>
+          </DialogHeader>
+          <FileUpload />
+        </DialogContent>
+      </Dialog>
 
       <Popover>
         <PopoverTrigger asChild>
@@ -84,6 +141,11 @@ export function PromptToolbar({ onContextChange }: { onContextChange?: (context:
             <CommandList>
               <CommandEmpty>No context found.</CommandEmpty>
               <CommandGroup heading="Actions">
+                <CommandItem onSelect={() => handleContextSelect("canvas")}>
+                  <IconPencil className="h-4 w-4 mr-2" />
+                  <span>Canvas</span>
+                  {selectedContext === "canvas" && <span className="ml-auto text-xs">✓</span>}
+                </CommandItem>
                 <CommandItem onSelect={() => handleContextSelect("create-blog")}>
                   <IconFileDescription className="h-4 w-4 mr-2" />
                   <span>Create Blog</span>
@@ -98,40 +160,6 @@ export function PromptToolbar({ onContextChange }: { onContextChange?: (context:
                   <IconShoppingCart className="h-4 w-4 mr-2" />
                   <span>Manage Products</span>
                   {selectedContext === "manage-products" && <span className="ml-auto text-xs">✓</span>}
-                </CommandItem>
-              </CommandGroup>
-              <CommandGroup heading="Files">
-                <CommandItem>
-                  <IconFile className="h-4 w-4 mr-2" />
-                  <span>README.md</span>
-                </CommandItem>
-                <CommandItem>
-                  <IconFile className="h-4 w-4 mr-2" />
-                  <span>package.json</span>
-                </CommandItem>
-                <CommandItem>
-                  <IconFile className="h-4 w-4 mr-2" />
-                  <span>app/page.tsx</span>
-                </CommandItem>
-              </CommandGroup>
-              <CommandGroup heading="Folders">
-                <CommandItem>
-                  <IconFolder className="h-4 w-4 mr-2" />
-                  <span>components/</span>
-                </CommandItem>
-                <CommandItem>
-                  <IconFolder className="h-4 w-4 mr-2" />
-                  <span>app/</span>
-                </CommandItem>
-              </CommandGroup>
-              <CommandGroup heading="Code">
-                <CommandItem>
-                  <IconCode className="h-4 w-4 mr-2" />
-                  <span>Current file</span>
-                </CommandItem>
-                <CommandItem>
-                  <IconCode className="h-4 w-4 mr-2" />
-                  <span>Selection</span>
                 </CommandItem>
               </CommandGroup>
             </CommandList>

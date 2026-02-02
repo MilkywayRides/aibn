@@ -215,7 +215,7 @@ export default function ProductsPage() {
       }
     >
       <AppSidebar variant="inset" />
-      <SidebarInset className="flex-1">
+      <SidebarInset className="h-screen overflow-hidden flex flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 justify-between">
           <div className="flex items-center gap-2">
             <SidebarTrigger />
@@ -348,19 +348,20 @@ export default function ProductsPage() {
           </div>
         </header>
         
-        <div className="flex-1 overflow-y-auto p-6">
-          {loading ? (
-            <p className="text-center text-muted-foreground">Loading products...</p>
-          ) : products.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground mb-4">No products yet</p>
-              <Button onClick={handleNewProduct}>
-                <IconPlus className="h-4 w-4 mr-2" />
-                Create Your First Product
-              </Button>
-            </div>
-          ) : (
-            <div className="rounded-md border">
+        <ScrollArea className="h-full">
+          <div className="p-6">
+            {loading ? (
+              <p className="text-center text-muted-foreground">Loading products...</p>
+            ) : products.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground mb-4">No products yet</p>
+                <Button onClick={handleNewProduct}>
+                  <IconPlus className="h-4 w-4 mr-2" />
+                  Create Your First Product
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -437,7 +438,8 @@ export default function ProductsPage() {
               </Table>
             </div>
           )}
-        </div>
+          </div>
+        </ScrollArea>
       </SidebarInset>
       
       <ConfirmDialog

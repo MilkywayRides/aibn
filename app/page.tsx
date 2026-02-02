@@ -1,7 +1,7 @@
 "use client"
 
 import { AppSidebar } from "@/components/app-sidebar"
-import { PromptToolbar } from "@/components/ai/prompt-toolbar"
+import { AIPromptBox } from "@/components/ai/ai-prompt-box"
 import {
   SidebarInset,
   SidebarProvider,
@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { IconArrowUp, IconMicrophone, IconHistory, IconSearch, IconPlus, IconSparkles, IconPlayerPause, IconStar, IconStarFilled, IconTrash, IconThumbUp, IconThumbDown, IconCopy, IconCheck } from "@tabler/icons-react"
+import { IconHistory, IconSearch, IconPlus, IconSparkles, IconStar, IconStarFilled, IconTrash, IconThumbUp, IconThumbDown, IconCopy, IconCheck } from "@tabler/icons-react"
 import { useState, useEffect } from "react"
 import { AnimatedShinyText } from "@/components/ui/animated-shiny-text"
 import { useSession } from "@/lib/auth-client"
@@ -314,7 +314,7 @@ export default function Home() {
       }
     >
       <AppSidebar variant="inset" />
-      <SidebarInset className="flex flex-col h-full overflow-hidden">
+      <SidebarInset className="flex flex-col h-screen overflow-hidden">
         {messages.length > 0 ? (
           // Chat View
           <div className="flex flex-col h-full">
@@ -385,8 +385,8 @@ export default function Home() {
                 </Dialog>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto pb-32">
-              <div className="max-w-3xl mx-auto px-4 py-8 space-y-8">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent">
+              <div className="max-w-3xl mx-auto px-4 py-8 pb-32 space-y-8">
                 {messages.map((message, index) => {
                   const isLastMessage = index === messages.length - 1
                   const showShimmer = isLastMessage && message.role === "assistant" && isStreaming
@@ -460,40 +460,20 @@ export default function Home() {
             <div className="fixed bottom-0 left-0 right-0 pointer-events-none" style={{ left: 'var(--sidebar-width, 0px)' }}>
               <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent h-32" />
               <div className="relative max-w-3xl mx-auto p-4 pointer-events-auto">
-                <div className="flex flex-col gap-2 rounded-3xl border border-border/30 bg-muted/50 backdrop-blur-2xl p-3 shadow-2xl shadow-black/20">
-                  <PromptToolbar onContextChange={setContext} />
-
-                  <div className="flex items-end gap-2 px-3 pb-1">
-                    <Textarea
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Message"
-                      className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground/60 min-h-[52px] max-h-[200px] resize-none"
-                      rows={1}
-                    />
-                    <div className="flex gap-2 flex-shrink-0">
-                      <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full hover:bg-accent/50">
-                        <IconMicrophone className="h-5 w-5" />
-                      </Button>
-                      {isStreaming ? (
-                        <Button onClick={handleStop} size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-sm">
-                          <IconPlayerPause className="h-5 w-5" />
-                        </Button>
-                      ) : (
-                        <Button onClick={handleSubmit} size="icon" className="h-9 w-9 rounded-full shadow-sm">
-                          <IconArrowUp className="h-5 w-5" />
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <AIPromptBox
+                  input={input}
+                  setInput={setInput}
+                  onSubmit={handleSubmit}
+                  isStreaming={isStreaming}
+                  onStop={handleStop}
+                  onContextChange={setContext}
+                />
               </div>
             </div>
           </div>
         ) : (
           // Welcome View
-          <div className="flex flex-col min-h-screen animate-in fade-in duration-500">
+          <div className="flex flex-col h-screen animate-in fade-in duration-500">
             <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b p-2 rounded-br-lg">
               <SidebarTrigger className="rounded-lg" />
             </div>
@@ -506,34 +486,14 @@ export default function Home() {
                 </div>
 
                 <div className="relative">
-                  <div className="flex flex-col gap-2 rounded-3xl border border-border/30 bg-muted/50 backdrop-blur-2xl p-3 shadow-2xl shadow-black/20 transition-all focus-within:shadow-2xl focus-within:border-primary/30 focus-within:ring-2 focus-within:ring-primary/10">
-                    <PromptToolbar onContextChange={setContext} />
-
-                    <div className="flex items-end gap-2 px-3 pb-1">
-                      <Textarea
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Message"
-                        className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 text-base placeholder:text-muted-foreground/60 min-h-[52px] max-h-[200px] resize-none"
-                        rows={1}
-                      />
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button size="icon" variant="ghost" className="h-9 w-9 rounded-full hover:bg-accent/50">
-                          <IconMicrophone className="h-5 w-5" />
-                        </Button>
-                        {isStreaming ? (
-                          <Button onClick={handleStop} size="icon" variant="destructive" className="h-9 w-9 rounded-full shadow-sm">
-                            <IconPlayerPause className="h-5 w-5" />
-                          </Button>
-                        ) : (
-                          <Button onClick={handleSubmit} size="icon" className="h-9 w-9 rounded-full shadow-sm">
-                            <IconArrowUp className="h-5 w-5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <AIPromptBox
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={handleSubmit}
+                    isStreaming={isStreaming}
+                    onStop={handleStop}
+                    onContextChange={setContext}
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">

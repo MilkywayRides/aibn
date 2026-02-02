@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { chat, message } from "@/lib/schema"
+import { callOpenAI, callClaude, callGemini } from "@/lib/ai-providers"
 
 function generateChatId() {
     return Math.random().toString(36).substring(2, 10)
@@ -32,7 +33,7 @@ async function generateChatTitle(firstMessage: string) {
 
 export async function POST(request: NextRequest) {
     try {
-        const { message: userMessage, chatId, userId, context } = await request.json()
+        const { message: userMessage, chatId, userId, context, model = "Aibn" } = await request.json()
 
         let currentChatId = chatId
 
@@ -121,20 +122,33 @@ CONTENT: [markdown content]`
                 // Send chatId immediately
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ chatId: currentChatId, type: "start" })}\n\n`))
 
+                let response
+
+                // Route to appropriate AI provider based on model
+                if (model.startsWith("gpt-")) {
+                    response = await callOpenAI([{ role: "user", content: aiPrompt }], model, userId)
+                } else if (model.startsWith("claude-")) {
+                    response = await callClaude([{ role: "user", content: aiPrompt }], model, userId)
+                } else if (model === "gemini-pro") {
+                    response = await callGemini([{ role: "user", content: aiPrompt }], userId)
+                } else {
+                    // Default to Aibn
+                    response = await fetch(`${apiUrl}/v1/chat/completions`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${apiSecret}`,
+                        },
+                        body: JSON.stringify({
+                            messages: [{ role: "user", content: aiPrompt }],
+                            max_tokens: 1500,
+                            temperature: 0.7,
+                            stream: true,
+                        }),
+                    })
+                }
+
                 // Try streaming first
-                const response = await fetch(`${apiUrl}/v1/chat/completions`, {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        "Authorization": `Bearer ${apiSecret}`,
-                    },
-                    body: JSON.stringify({
-                        messages: [{ role: "user", content: aiPrompt }],
-                        max_tokens: 1500,
-                        temperature: 0.7,
-                        stream: true,
-                    }),
-                })
 
                 if (!response.ok) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: "AI service error", type: "error" })}\n\n`))

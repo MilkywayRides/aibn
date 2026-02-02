@@ -143,7 +143,7 @@ export default function BlogsPage() {
       }
     >
       <AppSidebar variant="inset" />
-      <SidebarInset>
+      <SidebarInset className="h-screen overflow-hidden flex flex-col">
         <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 justify-between">
           <div className="flex items-center gap-2">
             <SidebarTrigger />
@@ -188,19 +188,20 @@ export default function BlogsPage() {
           </Dialog>
         </header>
         
-        <div className="flex-1 overflow-y-auto p-6">
-          {loading ? (
-            <p className="text-center text-muted-foreground">Loading blogs...</p>
-          ) : blogs.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground mb-4">No blogs yet</p>
-              <Button onClick={handleNewBlog}>
-                <IconPlus className="h-4 w-4 mr-2" />
-                Create Your First Blog
-              </Button>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <ScrollArea className="h-full">
+          <div className="p-6">
+            {loading ? (
+              <p className="text-center text-muted-foreground">Loading blogs...</p>
+            ) : blogs.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground mb-4">No blogs yet</p>
+                <Button onClick={handleNewBlog}>
+                  <IconPlus className="h-4 w-4 mr-2" />
+                  Create Your First Blog
+                </Button>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {blogs.map((blog) => (
                 <Card key={blog.id}>
                   <CardHeader>
@@ -241,7 +242,8 @@ export default function BlogsPage() {
               ))}
             </div>
           )}
-        </div>
+          </div>
+        </ScrollArea>
       </SidebarInset>
       
       <ConfirmDialog

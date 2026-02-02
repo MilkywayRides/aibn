@@ -30,22 +30,33 @@ export function Canvas({ isOpen, onClose, content, onContentChange, title: initi
   const [isMaximized, setIsMaximized] = useState(false)
   const [width, setWidth] = useState(50) // percentage
   const [viewMode, setViewMode] = useState<"edit" | "preview">("preview")
+  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
   const resizeRef = useRef<HTMLDivElement>(null)
   const previewRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLDivElement>(null)
   const isResizing = useRef(false)
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing.current || isMaximized) return
+      if (isResizing.current && !isMaximized) {
+        const newWidth = ((window.innerWidth - e.clientX) / window.innerWidth) * 100
+        if (newWidth >= 30 && newWidth <= 70) {
+          setWidth(newWidth)
+        }
+      }
       
-      const newWidth = ((window.innerWidth - e.clientX) / window.innerWidth) * 100
-      if (newWidth >= 30 && newWidth <= 70) {
-        setWidth(newWidth)
+      if (isDragging && !isMaximized) {
+        const deltaX = e.clientX - dragStart.x
+        const deltaY = e.clientY - dragStart.y
+        setPosition({ x: deltaX, y: deltaY })
       }
     }
 
     const handleMouseUp = () => {
       isResizing.current = false
+      setIsDragging(false)
       document.body.style.cursor = 'default'
       document.body.style.userSelect = 'auto'
     }
@@ -57,7 +68,7 @@ export function Canvas({ isOpen, onClose, content, onContentChange, title: initi
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isMaximized])
+  }, [isMaximized, isDragging, dragStart])
 
   if (!isOpen) return null
 
@@ -173,8 +184,24 @@ export function Canvas({ isOpen, onClose, content, onContentChange, title: initi
     document.body.style.userSelect = 'none'
   }
 
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (isMaximized) return
+    setIsDragging(true)
+    setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y })
+    document.body.style.cursor = 'move'
+    document.body.style.userSelect = 'none'
+  }
+
   return (
-    <div className={`flex flex-col h-full border-l bg-background transition-all relative`} style={{ width: isMaximized ? '100%' : `${width}%` }}>
+    <div 
+      ref={canvasRef}
+      className={`flex flex-col h-full border-l bg-background transition-all relative`} 
+      style={{ 
+        width: isMaximized ? '100%' : `${width}%`,
+        transform: isMaximized ? 'none' : `translate(${position.x}px, ${position.y}px)`,
+        position: isMaximized ? 'relative' : 'relative'
+      }}
+    >
       <div 
         ref={resizeRef}
         className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/50 group"
@@ -184,13 +211,14 @@ export function Canvas({ isOpen, onClose, content, onContentChange, title: initi
           <IconGripVertical className="h-4 w-4 text-muted-foreground" />
         </div>
       </div>
-      <div className="flex items-center justify-between p-4 border-b">
+      <div className="flex items-center justify-between p-4 border-b cursor-move" onMouseDown={handleDragStart}>
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="text-lg font-semibold border-0 shadow-none focus-visible:ring-0 px-0"
+          className="text-lg font-semibold border-0 shadow-none focus-visible:ring-0 px-0 cursor-text"
+          onMouseDown={(e) => e.stopPropagation()}
         />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
           <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as "edit" | "preview")} className="mr-2">
             <TabsList className="h-8">
               <TabsTrigger value="preview" className="h-7 px-2">
@@ -233,12 +261,13 @@ export function Canvas({ isOpen, onClose, content, onContentChange, title: initi
           </Button>
         </div>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 h-full">
+        <div className="h-full">
         {viewMode === "edit" ? (
           <Textarea
             value={content}
             onChange={(e) => onContentChange(e.target.value)}
-            className="min-h-[calc(100vh-8rem)] border-0 shadow-none focus-visible:ring-0 resize-none p-6 font-mono text-sm"
+            className="w-full h-full min-h-[calc(100vh-8rem)] border-0 shadow-none focus-visible:ring-0 resize-none p-6 font-mono text-sm"
             placeholder="Start writing..."
           />
         ) : (
@@ -251,6 +280,7 @@ export function Canvas({ isOpen, onClose, content, onContentChange, title: initi
             </ReactMarkdown>
           </div>
         )}
+        </div>
       </ScrollArea>
     </div>
   )

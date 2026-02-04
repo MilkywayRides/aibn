@@ -78,20 +78,46 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  const sanitizeCssIdentifier = (value: string) => {
+    if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+      return CSS.escape(value)
+    }
+    return value.replace(/[^a-zA-Z0-9_-]/g, "_")
+  }
+
+  const sanitizeCssValue = (value?: string) => {
+    if (!value) {
+      return null
+    }
+    const trimmed = value.trim()
+    const safePattern =
+      /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$|^rgba?\(\s*[\d.\s%,]+\s*\)$|^hsla?\(\s*[\d.\s%,]+\s*\)$|^var\(--[A-Za-z0-9_-]+\)$|^[a-zA-Z]+$/
+
+    return safePattern.test(trimmed) ? trimmed : null
+  }
+
+  const safeChartId = sanitizeCssIdentifier(id)
+
   return (
     <style
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
           .map(
             ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+${prefix} [data-chart="${safeChartId}"] {
 ${colorConfig
   .map(([key, itemConfig]) => {
-    const color =
+    const color = sanitizeCssValue(
       itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
+        itemConfig.color
+    )
+    if (!color) {
+      return null
+    }
+    const safeKey = sanitizeCssIdentifier(key)
+    return `  --color-${safeKey}: ${color};`
   })
+  .filter(Boolean)
   .join("\n")}
 }
 `
